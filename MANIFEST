@@ -5,6 +5,7 @@ MANIFEST
 META.yml
 Makefile.PL
 README
+README.mkdn
 dist.ini
 lib/Catalyst/ActionRole/MethodSignatureDependencyInjection.pm
 t/basic.t
