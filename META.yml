@@ -4,6 +4,7 @@ author:
   - 'John Napiorkowski <jjnapiork@cpan.org>'
 build_requires:
   Test::Most: '0'
+  warnings::illegalproto: '0.001003'
 configure_requires:
   ExtUtils::MakeMaker: '0'
 dynamic_config: 0
@@ -21,4 +22,4 @@ resources:
   bugtracker: https://github.com/jjn1056/Catalyst-ActionRole-MethodSignatureDependencyInjection/issues
   homepage: https://github.com/jjn1056/Catalyst-ActionRole-MethodSignatureDependencyInjection
   repository: https://github.com/jjn1056/Catalyst-ActionRole-MethodSignatureDependencyInjection.git
-version: '0.005'
+version: '0.006'

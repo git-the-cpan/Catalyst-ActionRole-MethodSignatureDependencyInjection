@@ -22,9 +22,10 @@ my %WriteMakefileArgs = (
     "signatures" => "0.11"
   },
   "TEST_REQUIRES" => {
-    "Test::Most" => 0
+    "Test::Most" => 0,
+    "warnings::illegalproto" => "0.001003"
   },
-  "VERSION" => "0.005",
+  "VERSION" => "0.006",
   "test" => {
     "TESTS" => "t/*.t"
   }
@@ -36,7 +37,8 @@ my %FallbackPrereqs = (
   "ExtUtils::MakeMaker" => 0,
   "Moose::Role" => "2.0602",
   "Test::Most" => 0,
-  "signatures" => "0.11"
+  "signatures" => "0.11",
+  "warnings::illegalproto" => "0.001003"
 );
 
 
