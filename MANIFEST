@@ -8,5 +8,7 @@ README
 README.mkdn
 dist.ini
 lib/Catalyst/ActionRole/MethodSignatureDependencyInjection.pm
+lib/Catalyst/ActionSignatures.pm
 t/basic.t
 t/function-parameters.t
+t/signatures.t

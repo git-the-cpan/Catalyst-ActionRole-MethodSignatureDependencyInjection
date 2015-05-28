@@ -28,13 +28,13 @@ use Test::Most;
   sub bar { 'bar' }
 
   $INC{'MyApp/Model/Z.pm'} = __FILE__;
-
+  
   package MyApp::Controller::Root;
   use base 'Catalyst::Controller';
 
   no warnings::illegalproto;
 
-  sub test_model ($Req, $Res, $BodyData, $BodyParams, $QueryParams, Model::A, Model::Z) 
+  sub test_model($ctx, $Req, $Res, $BodyData, $BodyParams, $QueryParams, Model::A, Model::Z) 
     :Local :Does(MethodSignatureDependencyInjection) UsePrototype(1)
    {
     my ($self, $Ctx, $Req, $Res, $Data, $Params, $Query, $A, $Z) = @_;
@@ -49,7 +49,7 @@ use Test::Most;
   }
 
   sub test_model2 :Local :Does(MethodSignatureDependencyInjection)
-    ExecuteArgsTemplate($Req, $Res, $BodyData, $BodyParams, $QueryParams, Model::A, Model::Z)
+    ExecuteArgsTemplate($ctx, $Req, $Res, $BodyData, $BodyParams, $QueryParams, Model::A, Model::Z)
    {
     my ($self, $Ctx, $Req, $Res, $Data, $Params, $Query, $A, $Z) = @_;
 

@@ -10,7 +10,7 @@ Attribute syntax:
     use base 'Catalyst::Controller';
 
     sub test_model :Local :Does(MethodSignatureDependencyInjection)
-      ExecuteArgsTemplate($Req, $Res, $BodyData, $BodyParams, $QueryParams, Model::A, Model::B)
+      ExecuteArgsTemplate($c, $Req, $Res, $BodyData, $BodyParams, $QueryParams, Model::A, Model::B)
     {
       my ($self, $c, $Req, $Res, $Data, $Params, $Query, $A, $B) = @_;
     }
@@ -22,7 +22,7 @@ Prototype syntax
 
     no warnings::illegalproto;
 
-    sub test_model($Req, $Res, $BodyData, $BodyParams, $QueryParams, Model::A, Model::B)
+    sub test_model($c, $Req, $Res, $BodyData, $BodyParams, $QueryParams, Model::A, Model::B)
       :Local :Does(MethodSignatureDependencyInjection) UsePrototype(1)
     {
       my ($self, $c, $Req, $Res, $Data, $Params, $Query, $A, $B) = @_;
@@ -33,9 +33,13 @@ Prototype syntax
 Lets you declare required action dependencies via the a subroutine attribute
 and additionally via the prototype (if you dare)
 
-This is a poorly documented, early access prototype.  The author reserves the
+This is a weakly documented, early access prototype.  The author reserves the
 right to totally change everything and potentially disavow all knowledge of it.
 Only report bugs if you are capable of offering a patch and discussion.
+
+**UPDATE** This module is starting to stablize, and I'd be interested in seeing
+people use it and getting back to me on it.  But I do recommend using it only
+if you feel like its code you understand.
 
 Please note if any of the declared dependencies return undef, that will cause
 the action to not match.  This could probably be better warning wise...
@@ -44,7 +48,7 @@ the action to not match.  This could probably be better warning wise...
 
 [Catalyst](https://metacpan.org/pod/Catalyst) when dispatching a request to an action calls the [Action::Class](https://metacpan.org/pod/Action::Class)
 execute method with the following arguments ($self, $c, @args).  This you likely
-already know (if you are a <Catalyst> programmer).
+already know (if you are a [Catalyst](https://metacpan.org/pod/Catalyst) programmer).
 
 This action role lets you describe an alternative 'template' to be used for
 what arguments go to the execute method.  This way instead of @args you can
@@ -71,13 +75,20 @@ If you use this you might for example set this action role in a base controller
 such that all your controllers get it (one example usage).
 
 Please note that you must still access your arguments via `@_`, this is not
-a method signature framework.
+a method signature framework.  You can take a look at [Catalyst::ActionSignatures](https://metacpan.org/pod/Catalyst::ActionSignatures)
+for a system that bundles this all up more neatly.
 
 # DEPENDENCY INJECTION
 
 You define your execute arguments as a positioned list (for now).  The system
-recognizes the following 'built ins' (you always get $self and $c, as you do
-in the current system).
+recognizes the following 'built ins' (you always get $self automatically).
+
+## $c
+
+## $ctx
+
+The current context.  You are encouraged to more clearly name your action
+dependencies, but its here if you need it.
 
 ## $req
 
@@ -134,9 +145,44 @@ You can also pass arguments to your models.  For example:
 
 same as $c->model('UserForm', $c->model('User'));
 
+# Integration with Function::Parameters
+
+For those of you that would like to push the limits even harder, we have
+experimental support for [Function::Parameters](https://metacpan.org/pod/Function::Parameters).  You may use like in the
+following example.
+
+    package MyApp::Controller::Root;
+
+    use base 'Catalyst::Controller';
+
+    use Function::Parameters({
+      method => {defaults => 'method'},
+      action => {
+        attributes => ':method :Does(MethodSignatureDependencyInjection) UsePrototype(1)',
+        shift => '$self',
+        check_argument_types => 0,
+        strict => 0,
+        default_arguments => 1,
+      }});
+
+    action test_model($c, $res, Model::A $A, Model::Z $Z) 
+      :Local 
+    {
+      # ...
+      $res->body(...);
+    }
+
+    method test($a) {
+      return $a;
+    }
+
+Please note that currently you cannot use the 'parameterized' syntax for component
+injection (no Model::Model::Z support).
+
 # SEE ALSO
 
-[Catalyst::Action](https://metacpan.org/pod/Catalyst::Action), [Catalyst](https://metacpan.org/pod/Catalyst), [warnings::illegalproto](https://metacpan.org/pod/warnings::illegalproto).
+[Catalyst::Action](https://metacpan.org/pod/Catalyst::Action), [Catalyst](https://metacpan.org/pod/Catalyst), [warnings::illegalproto](https://metacpan.org/pod/warnings::illegalproto),
+[Catalyst::ActionSignatures](https://metacpan.org/pod/Catalyst::ActionSignatures)
 
 # AUTHOR
 
@@ -148,3 +194,11 @@ Copyright 2015, John Napiorkowski [email:jjnapiork@cpan.org](email:jjnapiork@cpa
 
 This library is free software; you can redistribute it and/or modify it under
 the same terms as Perl itself.
+
+# POD ERRORS
+
+Hey! **The above document had some coding errors, which are explained below:**
+
+- Around line 334:
+
+    Deleting unknown formatting code A<>

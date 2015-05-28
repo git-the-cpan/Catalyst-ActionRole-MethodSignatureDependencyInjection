@@ -2,7 +2,7 @@ package Catalyst::ActionRole::MethodSignatureDependencyInjection;
 
 use Moose::Role;
 
-our $VERSION = '0.006';
+our $VERSION = '0.007';
 
 has use_prototype => (
   is=>'ro',
@@ -68,9 +68,12 @@ sub _parse_dependencies {
   
   my @dependencies = ();
   my $template = $self->template;
+
   foreach my $what ($template=~/($p2|$p)/gx) {
     $what =~ s/^\s+|\s+$//g; #trim
 
+    push @dependencies, $ctx if lc($what) eq '$ctx';
+    push @dependencies, $ctx if lc($what) eq '$c';
     push @dependencies, $ctx->req if lc($what) eq '$req';
     push @dependencies, $ctx->res if lc($what) eq '$res';
     push @dependencies, $ctx->req->args if lc($what) eq '$args';
@@ -80,12 +83,13 @@ sub _parse_dependencies {
 
     #This will blow stuff up unless its the last...
     push @dependencies, @{$ctx->req->args} if lc($what) eq '@args';
+    push @dependencies, @{$ctx->req->body_parameters} if lc($what) eq '%bodyparams';
 
     if(defined(my $arg_index = ($what =~/^\$Arg(.+)$/i)[0])) {
       push @dependencies, $ctx->req->args->[$arg_index];
     }
 
-    if(my $model = ($what =~/^Model\:\:(.+)$/)[0]) {
+    if(my $model = ($what =~/^Model\:\:(.+)\s+.+$/)[0] || ($what =~/^Model\:\:(.+)/)[0]) {
       my @inner_deps = ();
       if(my $extracted = ($model=~/.+?<(.+)>$/)[0]) {
         @inner_deps = $self->_parse_dependencies($extracted, $ctx, @args);
@@ -94,10 +98,11 @@ sub _parse_dependencies {
 
       my ($ret, @rest) = $ctx->model($model, @inner_deps);
       warn "$model returns more than one arg" if @rest;
+      warn "$model is not defined, action will not match" unless defined $ret;
       push @dependencies, $ret;
     }
 
-    if(my $view = ($what =~/^View\:\:(.+)$/)[0]) {
+    if(my $view = ($what =~/^View\\:\:(.+)\s+.+$/)[0] || ($what =~/^View\:\:(.+)\s+.+$/)[0]) {
       my @inner_deps = ();
       if(my $extracted = ($view=~/.+?<(.+)>$/)[0]) {
         @inner_deps = $self->_parse_dependencies($extracted, $ctx, @args);
@@ -106,11 +111,15 @@ sub _parse_dependencies {
 
       my ($ret, @rest) = $ctx->view($view, @inner_deps);
       warn "$view returns more than one arg" if @rest;
+      warn "$view is not defined, action will not match" unless defined $ret;
       push @dependencies, $ret;
     }
 
-    if(my $controller = ($what =~/^Controller\:\:(.+)$/)[0]) {
-      push @dependencies, $ctx->controller($controller);
+    if(my $controller = ($what =~/^Controller\:\:(.+)\s+.+$/)[0] || ($what =~/^Controller\:\:(.+)\s+.+$/)[0]) {
+      my ($ret, @rest) = $ctx->controller($controller);
+      warn "$controller returns more than one arg" if @rest;
+      warn "$controller is not defined, action will not match" unless defined $ret;
+      push @dependencies, $ret;
     }
   }
 
@@ -137,7 +146,9 @@ around ['match', 'match_captures'] => sub {
 around 'execute', sub {
   my ($orig, $self, $controller, $ctx, @args) = @_;
   my @dependencies = @{$ctx->stash->{__method_signature_dependencies}};
-  return $self->$orig($controller, $ctx, @dependencies);
+
+
+  return $self->$orig($controller, @dependencies);
 };
 
 1;
@@ -154,7 +165,7 @@ Attribute syntax:
   use base 'Catalyst::Controller';
 
   sub test_model :Local :Does(MethodSignatureDependencyInjection)
-    ExecuteArgsTemplate($Req, $Res, $BodyData, $BodyParams, $QueryParams, Model::A, Model::B)
+    ExecuteArgsTemplate($c, $Req, $Res, $BodyData, $BodyParams, $QueryParams, Model::A, Model::B)
   {
     my ($self, $c, $Req, $Res, $Data, $Params, $Query, $A, $B) = @_;
   }
@@ -166,7 +177,7 @@ Prototype syntax
 
   no warnings::illegalproto;
 
-  sub test_model($Req, $Res, $BodyData, $BodyParams, $QueryParams, Model::A, Model::B)
+  sub test_model($c, $Req, $Res, $BodyData, $BodyParams, $QueryParams, Model::A, Model::B)
     :Local :Does(MethodSignatureDependencyInjection) UsePrototype(1)
   {
     my ($self, $c, $Req, $Res, $Data, $Params, $Query, $A, $B) = @_;
@@ -177,9 +188,13 @@ Prototype syntax
 Lets you declare required action dependencies via the a subroutine attribute
 and additionally via the prototype (if you dare)
 
-This is a poorly documented, early access prototype.  The author reserves the
+This is a weakly documented, early access prototype.  The author reserves the
 right to totally change everything and potentially disavow all knowledge of it.
 Only report bugs if you are capable of offering a patch and discussion.
+
+B<UPDATE> This module is starting to stablize, and I'd be interested in seeing
+people use it and getting back to me on it.  But I do recommend using it only
+if you feel like its code you understand.
 
 Please note if any of the declared dependencies return undef, that will cause
 the action to not match.  This could probably be better warning wise...
@@ -188,7 +203,7 @@ the action to not match.  This could probably be better warning wise...
 
 L<Catalyst> when dispatching a request to an action calls the L<Action::Class>
 execute method with the following arguments ($self, $c, @args).  This you likely
-already know (if you are a <Catalyst> programmer).
+already know (if you are a L<Catalyst> programmer).
 
 This action role lets you describe an alternative 'template' to be used for
 what arguments go to the execute method.  This way instead of @args you can
@@ -215,13 +230,20 @@ If you use this you might for example set this action role in a base controller
 such that all your controllers get it (one example usage).
 
 Please note that you must still access your arguments via C<@_>, this is not
-a method signature framework.
+a method signature framework.  You can take a look at L<Catalyst::ActionSignatures>
+for a system that bundles this all up more neatly.
 
 =head1 DEPENDENCY INJECTION
 
 You define your execute arguments as a positioned list (for now).  The system
-recognizes the following 'built ins' (you always get $self and $c, as you do
-in the current system).
+recognizes the following 'built ins' (you always get $self automatically).
+
+=head2 $c
+
+=head2 $ctx
+
+The current context.  You are encouraged to more clearly name your action
+dependencies, but its here if you need it.
 
 =head2 $req
 
@@ -314,7 +336,8 @@ injection (no Model::A<Model::Z> support).
 
 =head1 SEE ALSO
 
-L<Catalyst::Action>, L<Catalyst>, L<warnings::illegalproto>.
+L<Catalyst::Action>, L<Catalyst>, L<warnings::illegalproto>,
+L<Catalyst::ActionSignatures>
 
 =head1 AUTHOR
  
