@@ -1,8 +1,9 @@
 package Catalyst::ActionRole::MethodSignatureDependencyInjection;
 
 use Moose::Role;
+use Carp;
 
-our $VERSION = '0.007';
+our $VERSION = '0.008';
 
 has use_prototype => (
   is=>'ro',
@@ -57,8 +58,6 @@ has template => (
       $self->prototype : $self->execute_args_template;
   }
 
-
-
 sub _parse_dependencies {
   my ($self, $ctx, @args) = @_;
 
@@ -69,8 +68,10 @@ sub _parse_dependencies {
   my @dependencies = ();
   my $template = $self->template;
 
-  foreach my $what ($template=~/($p2|$p)/gx) {
-    $what =~ s/^\s+|\s+$//g; #trim
+  my $arg_count = 0;
+  my $capture_count = 0;
+  my @what = map { $_ =~ s/^\s+|\s+$//g; $_ } ($template=~/($p2|$p)/gx);
+  while(my $what = shift @what) {
 
     push @dependencies, $ctx if lc($what) eq '$ctx';
     push @dependencies, $ctx if lc($what) eq '$c';
@@ -85,8 +86,32 @@ sub _parse_dependencies {
     push @dependencies, @{$ctx->req->args} if lc($what) eq '@args';
     push @dependencies, @{$ctx->req->body_parameters} if lc($what) eq '%bodyparams';
 
-    if(defined(my $arg_index = ($what =~/^\$Arg(.+)$/i)[0])) {
+    if(defined(my $arg_index = ($what =~/^\$?Arg(\d+).*$/i)[0])) {
       push @dependencies, $ctx->req->args->[$arg_index];
+      $arg_count = undef;
+    }
+
+    if($what=~/^\$?Args\s/) {
+      push @dependencies, @{$ctx->req->args}; # need to die if this is not the last..
+    }
+
+    if($what =~/^\$?Arg\s.*/) {
+      # count arg
+      confess "You can't mix numbered args and unnumbered args in the same signature" unless defined $arg_count;
+      push @dependencies, $ctx->req->args->[$arg_count];
+      $arg_count++;
+    }
+
+    if($what =~/^\$?Capture\s.*/) {
+      # count arg
+      confess "You can't mix numbered captures and unnumbered captures in the same signature" unless defined $arg_count;
+      push @dependencies, $args[$capture_count];
+      $capture_count++;
+    }
+
+    if(defined(my $capture_index = ($what =~/^\$?Capture(\d+).*$/i)[0])) {
+      # If they are asking for captures, we look at @args.. sorry
+      push @dependencies, $args[$capture_index];
     }
 
     if(my $model = ($what =~/^Model\:\:(.+)\s+.+$/)[0] || ($what =~/^Model\:\:(.+)/)[0]) {
@@ -131,22 +156,27 @@ sub _parse_dependencies {
 }
 
 around ['match', 'match_captures'] => sub {
-  my ($orig, $self, $ctx, @args) = @_;
-  return 0 unless $self->$orig($ctx, @args);
-  
-  my @dependencies = $self->_parse_dependencies($ctx, @{$ctx->req->args});
+  my ($orig, $self, $ctx, $args) = @_;
+  return 0 unless $self->$orig($ctx, $args);
+
+  # For chain captures, we find @args, but not for args...
+  # So we have to normalize.
+  my @args = scalar(@{$args||[]}) ?  @{$args||[]} : @{$ctx->req->args||[]};
+  my @dependencies = $self->_parse_dependencies($ctx, @args);
+
   foreach my $dependency (@dependencies) {
     return 0 unless defined($dependency);
   }
 
-  $ctx->stash(__method_signature_dependencies=>\@dependencies);
+  my $stash_key = $self .'__method_signature_dependencies';
+  $ctx->stash($stash_key=>\@dependencies);
   return 1;
 };
 
 around 'execute', sub {
   my ($orig, $self, $controller, $ctx, @args) = @_;
-  my @dependencies = @{$ctx->stash->{__method_signature_dependencies}};
-
+  my $stash_key = $self .'__method_signature_dependencies';
+  my @dependencies = @{$ctx->stash->{$stash_key}};
 
   return $self->$orig($controller, @dependencies);
 };
@@ -238,6 +268,9 @@ for a system that bundles this all up more neatly.
 You define your execute arguments as a positioned list (for now).  The system
 recognizes the following 'built ins' (you always get $self automatically).
 
+B<NOTE> These arguments are matched using a case insensitive regular expression
+so generally whereever you see $arg you can also use $Arg or $ARG.
+
 =head2 $c
 
 =head2 $ctx
@@ -255,8 +288,9 @@ The current L<Catalyst::Response>
 
 =head2 $args
 
-The current an arrayref of the current args
+An arrayref of the current args
 
+=head2 args
 =head2 @args
 
 An array of the current args.  Only makes sense if this is the last specified
@@ -264,7 +298,57 @@ argument.
 
 =head2 $arg0 .. $argN
 
+=head2 arg0 ... argN
+
 One of the indexed args, where $args0 => $args[0];
+
+=head2 arg
+
+If you use 'arg' without a numbered index, we assume an index based on the number
+of such 'un-numbered' args in your signature.  For example:
+
+    ExecuteArgsTemplate(Arg, Arg)
+
+Would match two arguments $arg->[0] and $args->[1].  You cannot use both numbered
+and un-numbered args in the same signature.
+
+B<NOTE>This also works with the 'Args' special 'zero or more' match.  So for
+example:
+
+    sub argsargs($res, Args @ids) :Local {
+      $res->body(join ',', @ids);
+    }
+
+Is the same as:
+
+    sub argsargs($res, Args @ids) :Local Args {
+      $res->body(join ',', @ids);
+    }
+
+=head2 $captures
+
+An arrayref of the current CaptureArgs (used in Chained actions).
+
+=head2 @captures
+
+An array of the current CaptureArgs.  Only makes sense if this is the last specified
+argument.
+
+=head2 $capture0 .. $captureN
+
+=head2 capture0 ... captureN
+
+One of the indexed Capture Args, where $capture0 => $capture0[0];
+
+=head2 capture
+
+If you use 'capture' without a numbered index, we assume an index based on the number
+of such 'un-numbered' args in your signature.  For example:
+
+    ExecuteArgsTemplate(Capture, Capture)
+
+Would match two arguments $capture->[0] and $capture->[1].  You cannot use both numbered
+and un-numbered capture args in the same signature.
 
 =head2 $bodyData
 

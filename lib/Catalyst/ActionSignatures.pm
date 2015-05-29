@@ -2,12 +2,13 @@ package Catalyst::ActionSignatures;
 
 use Moose;
 use B::Hooks::Parser;
+use Carp;
 extends 'signatures';
 
 around 'callback', sub {
   my ($orig, $self, $offset, $inject) = @_;
 
-  my @parts = map { $_=~s/^.*([\$\%])/$1/; $_ } split ',', $inject;
+  my @parts = map { $_=~s/^.*([\$\%\@]\w+).*$/$1/; $_ } split ',', $inject;
   my $signature = join(',', ('$self', @parts));
 
   $self->$orig($offset, $signature);
@@ -23,8 +24,73 @@ around 'callback', sub {
 
   if($attribute_area =~m/\S/) {
     $linestr =~s/\{/:Does(MethodSignatureDependencyInjection) :ExecuteArgsTemplate($inject) \{/;
+
+    # How many numbered or unnumberd args?
+    my $count_args = scalar(my @countargs = $inject=~m/(Arg)[\d+\s]/ig);
+    if($count_args and $attribute_area!~m/Args\(.+?\)/i) {
+      
+      my @constraints = ($inject=~m/Arg[\d+\s+][\$\%\@]\w+\s+isa\s+([\w"']+)/gi);
+      if(@constraints) {
+        if(scalar(@constraints) != $count_args) {
+          confess "If you use constraints in a method signature, all args must have constraints";
+        }
+        my $constraint = join ',',@constraints;
+        $linestr =~s/\{/ :Args($constraint) \{/;
+      } else {
+        $linestr =~s/\{/ :Args($count_args) \{/;
+      }
+    }
+
+    my $count_capture = scalar(my @countcaps = $inject=~m/(capture)[\d+\s]/ig);
+    if($count_capture and $attribute_area!~m/CaptureArgs\(.+?\)/i) {
+
+      my @constraints = ($inject=~m/Capture[\d+\s+][\$\%\@]\w+\s+isa\s+([\w"']+)/gi);
+      if(@constraints) {
+        if(scalar(@constraints) != $count_capture) {
+          confess "If you use constraints in a method signature, all args must have constraints";
+        }
+        my $constraint = join ',',@constraints;
+        $linestr =~s/\{/ :CaptureArgs($constraint) \{/;
+      } else {
+        $linestr =~s/\{/ :CaptureArgs($count_capture) \{/;
+      }
+    }
+
+    # Check for Args
+    if(($inject=~m/Args/i) and ($attribute_area!~m/Args\s/)) {
+      $linestr =~s/\{/ :Args \{/;
+    }
+
+    # If there's Chained($target/) thats the convention for last
+    # action in chain with Args(0).  So if we detect that and there
+    # is no Args present, add Args(0).
+    ($attribute_area) = ($linestr =~m/\)(.*){/);
+    
+    if(
+        $attribute_area =~m/Chained\(.+?\/\)/ 
+        && $attribute_area!~m/[\s\:]Args/i
+    ) {
+      $linestr =~s/Chained\((.+?)\/\)/Chained\($1\)/;
+      $linestr =~s/\{/ :Args(0) \{/;
+    }
+
+    # If this is chained but no Args, Args($n) or Captures($n), then add 
+    # a CaptureArgs(0).  Gotta rebuild the attribute area since we might
+    # have modified it above.
+    ($attribute_area) = ($linestr =~m/\)(.*){/);
+
+    if(
+      $attribute_area =~m/Chained/i && 
+        $attribute_area!~m/[\s\:]Args/i &&
+          $attribute_area!~m/CaptureArgs/i
+    ) {
+      $linestr =~s/\{/ :CaptureArgs(0) \{/;
+    }
+
     B::Hooks::Parser::set_linestr($linestr);
-  }
+
+    #warn "\n $linestr \n";
+  } 
 };
 
 1;
@@ -67,6 +133,82 @@ For actions and regular controller methods, "$self" is implicitly injected,
 but '$c' is not.  You should add that to the method signature if you need it
 although you are encouraged to name your dependencies rather than hang it all
 after $c.
+
+You should review L<Catalyst::ActionRole::MethodSignatureDependencyInjection>
+for more on how to construct signatures.
+
+=head1 Args and Captures
+
+If you specify args and captures in your method signature, you can leave off the
+associated method attributes (Args($n) and CaptureArgs($n)) IF the method 
+signature is the full specification.  In other works instead of:
+
+    sub chain(Model::A $a, Capture $id, $res) :Chained(/) CaptureArgs(1) {
+      Test::Most::is $id, 100;
+      Test::Most::ok $res->isa('Catalyst::Response');
+    }
+
+      sub endchain($res, Arg0 $name) :Chained(chain) Args(1) {
+        $res->body($name);
+      }
+   
+      sub endchain2($res, Arg $first, Arg $last) :Chained(chain) PathPart(endchain) Args(2) {
+        $res->body("$first $last");
+      }
+
+You can do:
+
+    sub chain(Model::A $a, Capture $id, $res) :Chained(/) {
+      Test::Most::is $id, 100;
+      Test::Most::ok $res->isa('Catalyst::Response');
+    }
+
+      sub endchain($res, Arg0 $name) :Chained(chain)  {
+        $res->body($name);
+      }
+   
+      sub endchain2($res, Arg $first, Arg $last) :Chained(chain) PathPart(endchain)  {
+        $res->body("$first $last");
+      }
+
+=head1 Type Constraints
+
+If you are using a newer L<Catalyst> (greater that 5.90090) you may declare your
+Args and CaptureArgs typeconstraints via the method signature.
+
+    use Types::Standard qw/Int Str/;
+
+    sub chain(Model::A $a, Capture $id isa Int, $res) :Chained(/) {
+      Test::Most::is $id, 100;
+      Test::Most::ok $res->isa('Catalyst::Response');
+    }
+
+      sub typed0($res, Arg $id) :Chained(chain) PathPart(typed) {
+        $res->body('any');
+      }
+
+      sub typed1($res, Arg $pid isa Int) :Chained(chain) PathPart(typed) {
+        $res->body('int');
+      }
+
+B<NOTE> If you declare any type constraints on args or captures, all declared
+args or captures must have them.
+
+=head1 Implicit 'CaptureArgs(0)' and 'Args(0) in chained actions
+
+If you fail to use an Args or CaptureArgs attributes and you do not declare
+any captures or args in your chained action method signatures, we automatically
+add a CaptureArgs(0) attribute.  However, since we cannot properly detect the
+end of a chain, you must still use Args(0) to terminate chains when the
+last action has no arguments.  You may instead use "Chained(link/)" and
+note the terminal '/' in the chained attribute value to declare a terminal
+Chain with an implicit Args(0).
+
+    sub another_chain() :Chained(/) { }
+
+      sub another_end($res) :Chained(another_chain/) {
+        $res->body('another_end');
+      }
 
 =head1 SEE ALSO
 

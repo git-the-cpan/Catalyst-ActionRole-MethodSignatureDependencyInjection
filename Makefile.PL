@@ -17,6 +17,7 @@ my %WriteMakefileArgs = (
   "LICENSE" => "perl",
   "NAME" => "Catalyst::ActionRole::MethodSignatureDependencyInjection",
   "PREREQ_PM" => {
+    "Carp" => "1.36",
     "Catalyst" => "5.90060",
     "Moose::Role" => "2.0602",
     "signatures" => "0.12"
@@ -25,7 +26,7 @@ my %WriteMakefileArgs = (
     "Test::Most" => 0,
     "warnings::illegalproto" => "0.001003"
   },
-  "VERSION" => "0.007",
+  "VERSION" => "0.008",
   "test" => {
     "TESTS" => "t/*.t"
   }
@@ -33,6 +34,7 @@ my %WriteMakefileArgs = (
 
 
 my %FallbackPrereqs = (
+  "Carp" => "1.36",
   "Catalyst" => "5.90060",
   "ExtUtils::MakeMaker" => 0,
   "Moose::Role" => "2.0602",

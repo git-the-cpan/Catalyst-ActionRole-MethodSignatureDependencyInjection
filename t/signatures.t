@@ -49,6 +49,10 @@ use Test::Most;
     $c->res->body($self->regular(200));
   }
 
+  sub test_arg($res, Arg0 $id, Arg1 $pid, Model::A $a) :Local Args(2) {
+    $res->body("$id+$pid");
+  }
+
   sub regular($arg) {
     return "${\$self->aaa} $arg";
   }
@@ -56,13 +60,42 @@ use Test::Most;
   sub old_school {
     return 1;
   }
-  
+
+  sub argsargs($res, Args @ids) :Local {
+    $res->body(join ',', @ids);
+  }
+
+  sub chain(Model::A $a, Capture $id isa '"Int"', $res) :Chained(/) {
+    Test::Most::is $id, 100;
+    Test::Most::ok $res->isa('Catalyst::Response');
+  }
+
+    sub endchain($res, Arg0 $name) :Chained(chain)  {
+      $res->body($name);
+    }
+ 
+    sub endchain2($res, Arg $first, Arg $last) :Chained(chain) PathPart(endchain)  {
+      $res->body("$first $last");
+    }
+
+    sub typed0($res, Arg $id) :Chained(chain) PathPart(typed) {
+      $res->body('any');
+    }
+
+    sub typed1($res, Arg $pid isa '"Int"') :Chained(chain) PathPart(typed) {
+      $res->body('int');
+    }
+
+  sub another_chain() :Chained(/) { }
+
+    sub another_end($res) :Chained(another_chain/)  { $res->body('another_end') }
+
   package MyApp;
   use Catalyst;
   
   MyApp->config(
-    'Model::A' => {aaa=>100},
-    'Model::Z' => {zzz=>200},  
+    'Model::A' => { aaa => 100 },
+    'Model::Z' => { zzz => 200 },
   );
   MyApp->setup;
 }
@@ -77,8 +110,52 @@ use Catalyst::Test 'MyApp';
   is $c->model('A')->aaa, 100;
   is $c->model('Z')->bar, 'bar';
   is $c->model('Z')->zzz, 200;
+  is $res->content, '100 200';
+}
 
-  warn $res->content;
+{
+  ok my $res = request('/example/test_arg/111/222');
+  is $res->content, '111+222';
+}
+
+{
+  ok my $res = request('/chain/100/endchain/john');
+  is $res->content, 'john';
+}
+
+{
+  ok my $res = request('/chain/100/endchain/john/nap');
+  is $res->content, 'john nap';
+}
+
+{
+  ok my $res = request('/example/argsargs/');
+  is $res->content, '';
+}
+
+{
+  ok my $res = request('/example/argsargs/11');
+  is $res->content, '11';
+}
+
+{
+  ok my $res = request('/example/argsargs/11/22/33');
+  is $res->content, '11,22,33';
+}
+
+{
+  ok my $res = request('/chain/100/typed/string');
+  is $res->content, 'any';
+}
+
+{
+  ok my $res = request('/chain/100/typed/200');
+  is $res->content, 'int';
+}
+
+{
+  ok my $res = request('/another_chain/another_end');
+  is $res->content, 'another_end';
 }
 
 done_testing;
