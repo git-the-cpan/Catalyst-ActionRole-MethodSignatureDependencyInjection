@@ -18,9 +18,8 @@ requires:
   Carp: '1.36'
   Catalyst: '5.90060'
   Moose::Role: '2.0602'
-  signatures: '0.12'
 resources:
   bugtracker: https://github.com/jjn1056/Catalyst-ActionRole-MethodSignatureDependencyInjection/issues
   homepage: https://github.com/jjn1056/Catalyst-ActionRole-MethodSignatureDependencyInjection
   repository: https://github.com/jjn1056/Catalyst-ActionRole-MethodSignatureDependencyInjection.git
-version: '0.009'
+version: '0.010'

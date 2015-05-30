@@ -19,14 +19,13 @@ my %WriteMakefileArgs = (
   "PREREQ_PM" => {
     "Carp" => "1.36",
     "Catalyst" => "5.90060",
-    "Moose::Role" => "2.0602",
-    "signatures" => "0.12"
+    "Moose::Role" => "2.0602"
   },
   "TEST_REQUIRES" => {
     "Test::Most" => 0,
     "warnings::illegalproto" => "0.001003"
   },
-  "VERSION" => "0.009",
+  "VERSION" => "0.010",
   "test" => {
     "TESTS" => "t/*.t"
   }
@@ -39,7 +38,6 @@ my %FallbackPrereqs = (
   "ExtUtils::MakeMaker" => 0,
   "Moose::Role" => "2.0602",
   "Test::Most" => 0,
-  "signatures" => "0.12",
   "warnings::illegalproto" => "0.001003"
 );
 
