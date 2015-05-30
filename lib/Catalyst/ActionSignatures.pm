@@ -67,10 +67,10 @@ around 'callback', sub {
     ($attribute_area) = ($linestr =~m/\)(.*){/);
     
     if(
-        $attribute_area =~m/Chained\(.+?\/\)/ 
+        $attribute_area =~m/Chained\(['"]?\w+?\/['"]?\)/ 
         && $attribute_area!~m/[\s\:]Args/i
     ) {
-      $linestr =~s/Chained\((.+?)\/\)/Chained\($1\)/;
+      $linestr =~s/Chained\(["']?(\w+?)\/["']?\)/Chained\($1\)/;
       $linestr =~s/\{/ :Args(0) \{/;
     }
 
@@ -89,7 +89,7 @@ around 'callback', sub {
 
     B::Hooks::Parser::set_linestr($linestr);
 
-    #warn "\n $linestr \n";
+    print "\n $linestr \n" if $ENV{CATALYST_METHODSIGNATURES_DEBUG};
   } 
 };
 
@@ -194,7 +194,7 @@ Args and CaptureArgs typeconstraints via the method signature.
 B<NOTE> If you declare any type constraints on args or captures, all declared
 args or captures must have them.
 
-=head1 Implicit 'CaptureArgs(0)' and 'Args(0) in chained actions
+=head1 Implicit 'CaptureArgs(0)' and 'Args(0)' in chained actions
 
 If you fail to use an Args or CaptureArgs attributes and you do not declare
 any captures or args in your chained action method signatures, we automatically
@@ -209,6 +209,12 @@ Chain with an implicit Args(0).
       sub another_end($res) :Chained(another_chain/) {
         $res->body('another_end');
       }
+
+=head1 ENVIROMENT VARIABLES.
+
+Set C<CATALYST_METHODSIGNATURES_DEBUG> to true to get initial debugging output
+of the generated method signatures and attribute changes. Useful if you are
+having trouble and want some help to offer a patch!
 
 =head1 SEE ALSO
 
