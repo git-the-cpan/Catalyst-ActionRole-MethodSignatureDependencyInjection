@@ -3,7 +3,7 @@ package Catalyst::ActionRole::MethodSignatureDependencyInjection;
 use Moose::Role;
 use Carp;
 
-our $VERSION = '0.012';
+our $VERSION = '0.013';
 
 has use_prototype => (
   is=>'ro',
@@ -63,7 +63,7 @@ sub parse_injection_spec_section {
 
   # These Regexps could be better to allow more whitespace.
   my $p = qr/[^,]+/;
-  my $p2 = qr/$p<.+?>/x;
+  my $p2 = qr/$p<.+?>$p/x;
 
   $_[1]=~/\s*($p2|$p)\s*/gxc;
 
@@ -80,6 +80,13 @@ has dependency_builder => (
   sub _dependency_builder {
     my $self = shift;
     my $template = $self->template;
+    my @parsed = $self->_parse_dependencies($template);
+
+    return \@parsed;
+  }
+
+  sub _parse_dependencies {
+    my ($self, $template) = @_;
     my @what = ();
     for($template) {
       PARSE: {
@@ -92,7 +99,7 @@ has dependency_builder => (
       }
     }
 
-    return \@what;
+    return @what;
   }
 
 has prepared_dependencies => (
@@ -105,9 +112,8 @@ has prepared_dependencies => (
   sub not_required { return bless \(my $cb = shift), __PACKAGE__.'::not_required'; }
   sub required { return bless \(my $cb = shift), __PACKAGE__.'required'; }
 
-  sub _build_prepared_dependencies {
-    my ($self) = @_;
-    my @what = @{$self->dependency_builder};
+  sub _prepare_dependencies {
+    my ($self, @what) = @_;
     my $arg_count = 0;
     my $capture_count = 0;
     my @dependencies = ();
@@ -137,7 +143,7 @@ has prepared_dependencies => (
         next;
       }
 
-      if($what =~/^\$?Arg\s.*/) {
+      if($what =~/^\$?Arg\s?.*/) {
         # count arg
         confess "You can't mix numbered args and unnumbered args in the same signature" unless defined $arg_count;
         my $local = $arg_count;
@@ -146,7 +152,7 @@ has prepared_dependencies => (
         next;
       }
 
-      if($what =~/^\$?Capture\s.*/) {
+      if($what =~/^\$?Capture\s?.*/) {
         # count arg
         my $local = $capture_count;
         confess "You can't mix numbered captures and unnumbered captures in the same signature" unless defined $arg_count;
@@ -162,42 +168,66 @@ has prepared_dependencies => (
         next;
       }
 
-      if(my $model = ($what =~/^Model\:\:(.+?)\s+.+$/)[0] || ($what =~/^Model\:\:(.+)/)[0]) {
+      if($what=~/^Model\:\:/i) {
+        # Its a model. Could be:
+        #   -- Model::Foo
+        #   -- Model::Foo $foo
+        #   -- Model::Foo $foo isa Int
+        #   -- Model::Foo $foo isa Int required
+        #   -- Model::Foo<$params>
+        #   -- Model::Foo<$params> $foo
+        #   -- Model::Foo<$params> $foo isa Int
+        #   -- Model::Foo<$params> $foo isa Int required
+        #   For where $params is any sort of parsable spec (Arg, Arg $id, Arg $id isa Int, ...)
+  
+        # first get the model name
         my @inner_deps = ();
-        if(my $extracted = ($model=~/.+?<(.+)>$/)[0]) {
-          @inner_deps = $self->_parse_dependencies($extracted);
-          ($model) = ($model =~ /^(.+?)</);
+        my ($model) = ($what=~m/^Model\:\:([\w\:]+)/i);
+
+        die "Can't seem to extract a model name from '$what'!" unless $model;
+
+        my ($rest) = ($what =~/<([^>]+)/);
+
+        # Is the model parameterized??
+        if(defined($rest)) {
+           @inner_deps = $self->_prepare_dependencies($self->_parse_dependencies($rest));
         }
 
+        push @dependencies, @inner_deps if @inner_deps;
         push @dependencies, $method->(sub {
           my ($c, @args) = @_;
 
           # Make sure the $model is a component we already know about.
-          die "$model is not a defined component"
+          die "'$model' is not a defined component (parsed out of '$what'"
             unless $c->components->{ ref($c).'::Model::'.$model };
 
-          my ($ret, @rest) = $c->model($model, map { $_->($c, @args) } @inner_deps);
+          my ($ret, @rest) = $c->model($model, map { $$_->($c, @args) } @inner_deps);
           warn "$model returns more than one arg" if @rest;
           return $ret;
         });
         next;
       }
 
-      if(my $view = ($what =~/^View\\:\:(.+?)\s+.+$/)[0] || ($what =~/^View\:\:(.+)\s+.+$/)[0]) {
+      if($what=~/^View\:\:/i) {
         my @inner_deps = ();
-        if(my $extracted = ($view=~/.+?<(.+)>$/)[0]) {
-          @inner_deps = $self->_parse_dependencies($extracted);
-          ($view) = ($view =~ /^(.+?)</);
+        my ($view) = ($what=~m/^View\:\:([\w\:]+)/i);
+
+        die "Can't seem to extract a view name from '$what'!" unless $view;
+
+        my ($rest) = ($what =~/<([^>]+)/);
+
+        if(defined($rest)) {
+           @inner_deps = $self->_prepare_dependencies($self->_parse_dependencies($rest));
         }
 
+        push @dependencies, @inner_deps if @inner_deps;
         push @dependencies, $method->(sub {
           my ($c, @args) = @_;
 
-          # Make sure the $view is a component we already know about.
-          die "$view is not a defined component"
+          die "'$view' is not a defined component (parsed out of '$what'"
             unless $c->components->{ ref($c).'::View::'.$view };
 
-          my ($ret, @rest) = $c->view($view, map { $_->($c, @args) } @inner_deps);
+          my ($ret, @rest) = $c->view($view, map { $$_->($c, @args) } @inner_deps);
           warn "$view returns more than one arg" if @rest;
           return $ret;
         });
@@ -229,7 +259,13 @@ has prepared_dependencies => (
       );
     }
 
-    return \@dependencies;
+    return @dependencies;
+  }
+
+  sub _build_prepared_dependencies {
+    my ($self) = @_;
+    my @what = @{$self->dependency_builder};
+    return [ $self->_prepare_dependencies(@what) ];
   }
 
 around ['match', 'match_captures'] => sub {
