@@ -3,7 +3,7 @@ package Catalyst::ActionRole::MethodSignatureDependencyInjection;
 use Moose::Role;
 use Carp;
 
-our $VERSION = '0.018';
+our $VERSION = '0.020';
 
 has use_prototype => (
   is=>'ro',
